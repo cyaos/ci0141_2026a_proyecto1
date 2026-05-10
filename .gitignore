@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+
+.DS_Store
+.idea/
+.vscode/
+
+*.log
+
+postgres_data/
+mongo_data/
