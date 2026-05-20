@@ -18,7 +18,7 @@ services:
     container_name: ci0141_mongodb
     restart: always
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - mongo_data:/data/db
       - ./database/init_mongo.js:/docker-entrypoint-initdb.d/init_mongo.js
