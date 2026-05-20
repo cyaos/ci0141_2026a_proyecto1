@@ -3,59 +3,74 @@ from connections.mongo_connection import MongoConnection
 
 
 class ConnectionManager:
-    # Gestiona instancias de conexión para cada motor y mantiene el motor activo.
     def __init__(self):
-        # Mapa de claves a objetos de conexión.
-        self.connections = {
+        self.conexiones = {
             "postgres": PostgresConnection(),
             "mongo": MongoConnection()
         }
-        # Clave del motor actualmente seleccionado (ej. 'postgres' o 'mongo').
-        self.active_engine = None
 
-    def connect_all(self):
-        # Intenta conectar a todos los motores registrados.
-        print("\nConectando con las bases de datos disponibles...\n")
+        self.motor_activo = None
 
-        for connection in self.connections.values():
-            connection.connect()
+    def conectar_todos(self):
+        print("Iniciando conexiones...")
 
-    def show_connections(self):
-        # Muestra estado de cada conexión y marca cuál está en uso.
-        print("\n=== Estado de Conexiones ===")
+        for nombre_motor, conexion in self.conexiones.items():
+            conectado = conexion.conectar()
 
-        for key, connection in self.connections.items():
-            status = "activo" if connection.test_connection() else "inactivo"
-            active_marker = " (en uso)" if self.active_engine == key else ""
-            print(f"{key}: {connection.name} - {status}{active_marker}")
+            if conectado and self.motor_activo is None:
+                self.motor_activo = nombre_motor
 
-    def set_active_engine(self, engine_key):
-        if engine_key not in self.connections:
-            # La clave proporcionada no corresponde a ningún motor conocido.
-            print("Error: el motor de base de datos no está registrado.")
+        if self.motor_activo:
+            print(f"Motor activo inicial: {self.conexiones[self.motor_activo].nombre}")
+        else:
+            print("No hay motores activos.")
+
+    def desconectar_todos(self):
+        for conexion in self.conexiones.values():
+            conexion.desconectar()
+
+        self.motor_activo = None
+
+    def seleccionar_motor_activo(self, nombre_motor):
+        if nombre_motor not in self.conexiones:
+            print("Motor no reconocido.")
             return False
 
-        connection = self.connections[engine_key]
+        conexion = self.conexiones[nombre_motor]
 
-        if not connection.test_connection():
-            # Si no pasa la prueba de conexión no se puede activar.
-            print(f"Error: {connection.name} no está disponible.")
+        if not conexion.esta_activa:
+            print(f"El motor {conexion.nombre} no esta activo.")
             return False
 
-        # Guardamos la clave del motor activo.
-        self.active_engine = engine_key
-        print(f"Listo: ahora se usará {connection.name} como motor activo.")
+        self.motor_activo = nombre_motor
+        print(f"Motor activo cambiado a: {conexion.nombre}")
         return True
 
-    def get_active_connection(self):
-        if not self.active_engine:
-            # No hay motor activo seleccionado.
-            print("Error: no se ha seleccionado ningún motor activo.")
+    def obtener_conexion_activa(self):
+        if not self.motor_activo:
+            print("No hay un motor activo seleccionado.")
             return None
 
-        return self.connections[self.active_engine]
+        conexion = self.conexiones[self.motor_activo]
 
-    def disconnect_all(self):
-        # Cierra todas las conexiones (si están abiertas).
-        for connection in self.connections.values():
-            connection.disconnect()
+        if not conexion.probar_conexion():
+            print(f"La conexion con {conexion.nombre} no esta disponible.")
+            return None
+
+        return conexion
+
+    def mostrar_motor_activo(self):
+        if not self.motor_activo:
+            print("No hay motor activo.")
+            return
+
+        conexion = self.conexiones[self.motor_activo]
+        print(f"Motor activo: {conexion.nombre}")
+
+    def mostrar_conexiones(self):
+        print("\n=== Estado de conexiones ===")
+
+        for nombre_motor, conexion in self.conexiones.items():
+            estado = "Activa" if conexion.esta_activa else "Inactiva"
+            activo = " <- motor activo" if nombre_motor == self.motor_activo else ""
+            print(f"{conexion.nombre}: {estado}{activo}")
