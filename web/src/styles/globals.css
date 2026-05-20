@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #0A0A0A;
+  --color-surface: #111111;
+  --color-border: #1F1F1F;
+  --color-muted: #6B6B6B;
+  --color-text: #E5E5E5;
+  --color-accent: #A3E635;
+  --color-danger: #F87171;
+  --color-warn: #FBBF24;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-feature-settings: "ss01", "cv01";
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-bg);
+  }
+}
+
+@layer components {
+  .panel {
+    @apply border border-border bg-surface;
+  }
+
+  .btn {
+    @apply px-3 py-1.5 border border-border bg-surface text-text text-sm
+           hover:border-accent hover:text-accent transition-colors
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn border-accent text-accent hover:bg-accent hover:text-bg;
+  }
+
+  .btn-danger {
+    @apply btn hover:border-danger hover:text-danger;
+  }
+
+  .input {
+    @apply w-full px-2 py-1.5 bg-bg border border-border text-text text-sm
+           focus:outline-none focus:border-accent placeholder:text-muted;
+  }
+
+  .label {
+    @apply block text-xs text-muted mb-1 uppercase tracking-wider;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 border border-border
+           text-xs text-muted;
+  }
+}
