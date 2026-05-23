@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #app {
+    height: 100%;
+    background: theme("colors.bg");
+    color: theme("colors.text-primary");
+    font-family: theme("fontFamily.mono");
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  input, button, select, textarea { font: inherit; color: inherit; }
+  ::selection { background: theme("colors.accent"); color: theme("colors.bg"); }
+}
+
+@layer components {
+  .field-label {
+    @apply text-xs uppercase tracking-wider text-text-muted;
+  }
+  .field-input {
+    @apply w-full bg-bg border border-border px-3 py-2 text-text-primary
+           focus:outline-none focus:border-accent transition-colors;
+  }
+  .btn {
+    @apply px-3 py-1.5 border border-border text-text-primary
+           hover:border-border-strong hover:bg-surface-2
+           focus:outline-none focus:border-accent transition-colors
+           uppercase text-xs tracking-wider;
+  }
+  .btn-primary { @apply border-accent text-accent hover:bg-accent hover:text-bg; }
+  .btn-danger  { @apply border-danger text-danger hover:bg-danger hover:text-bg; }
+  .btn-ghost   { @apply border-transparent hover:border-border; }
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 text-xs uppercase
+           tracking-wider border border-border;
+  }
+  .stage-2 {
+    @apply text-text-dim border-text-dim/30 cursor-not-allowed;
+  }
+}
