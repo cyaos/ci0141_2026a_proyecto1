@@ -1,0 +1,58 @@
+flowchart TB
+
+    %% FRONTEND
+    subgraph Frontend
+        Vue["Vue + Vite Web UI"]
+        Stores["Pinia Stores"]
+        Components["Vue Components"]
+    end
+
+    %% CLI
+    subgraph CLI
+        REPL["CLI REPL"]
+    end
+
+    %% API
+    subgraph API
+        FastAPI["FastAPI Service"]
+        Routes["API Routes"]
+        Schemas["Schemas / Deps"]
+    end
+
+    %% CORE
+    subgraph Core
+        Conn["Connection Manager"]
+        TX["Transaction Manager"]
+        WAL["Write Ahead Log"]
+        Recovery["Recovery Manager"]
+    end
+
+    %% ADAPTERS
+    subgraph Adapters
+        PG["PostgreSQL Adapter"]
+        MG["MongoDB Adapter"]
+    end
+
+    %% DATABASES
+    subgraph Databases
+        Postgres[("PostgreSQL")]
+        Mongo[("MongoDB")]
+    end
+
+    %% FLOWS
+    Vue --> FastAPI
+    Stores --> FastAPI
+    REPL --> FastAPI
+
+    FastAPI --> Conn
+
+    Conn --> TX
+    Conn --> WAL
+    TX --> WAL
+    Recovery --> WAL
+
+    Conn --> PG
+    Conn --> MG
+
+    PG --> Postgres
+    MG --> Mongo
