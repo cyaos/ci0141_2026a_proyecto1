@@ -1,0 +1,27 @@
+%% Diagrama de flujo del proceso de recuperación para cada protocolo
+flowchart TD
+    A[Inicio] --> B[Seleccionar protocolo]
+    B --> C[Se abre transacción y se registran operaciones en WAL]
+    C --> D{Protocolo activo}
+
+    D --> N1
+    D --> R1
+
+    subgraph NUNDONREDO[No-Undo / No-Redo]
+        N1[Escrituras diferidas] --> N2[COMMIT aplica cambios a la BD]
+        N2 --> N3[Si ocurre fallo antes de COMMIT, no hay cambios que recuperar]
+        N3 --> N4[Recuperación: no UNDO / no REDO]
+    end
+
+    subgraph NUNDORREDO[No-Undo / Redo]
+        R1[Escrituras diferidas] --> R2[COMMIT intenta aplicar cambios]
+        R2 --> R3[Si hay fallo tras COMMIT, usar WAL para REDO]
+        R3 --> R4[TX sin COMMIT: se ignoran]
+        R4 --> R5[Recuperación: solo REDO de transacciones confirmadas]
+    end
+
+    N4 --> Z[Fin]
+    R5 --> Z
+
+    style NUNDONREDO fill:#f9f2ff,stroke:#7a4cc2,stroke-width:1px
+    style NUNDORREDO fill:#f2fbff,stroke:#2b78c5,stroke-width:1px
