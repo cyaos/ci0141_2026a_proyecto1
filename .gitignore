@@ -12,3 +12,5 @@ venv/
 
 postgres_data/
 mongo_data/
+
+.dbclient/

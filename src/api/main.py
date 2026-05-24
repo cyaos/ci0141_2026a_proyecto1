@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import jugadores, rankings, engines
+from api.routes import jugadores, rankings, engines, recovery
 from api.deps import get_manager, shutdown
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app.add_middleware(
 app.include_router(engines.router)
 app.include_router(jugadores.router)
 app.include_router(rankings.router)
+app.include_router(recovery.router)
 
 @app.get("/")
 def liveness_probe():
