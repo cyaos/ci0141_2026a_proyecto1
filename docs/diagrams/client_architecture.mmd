@@ -1,58 +1,34 @@
 flowchart TB
 
-    %% FRONTEND
-    subgraph Frontend
-        Vue["Vue + Vite Web UI"]
-        Stores["Pinia Stores"]
-        Components["Vue Components"]
+    User["CLI app"] --> Main["cli_app/main.py"]
+    Main --> REPL["REPL"]
+
+    subgraph State["Estado y coordinación"]
+        Conn["connections.py\nadd/remove/use/active"]
+        TX["tx_manager.py\nbegin / log_op / commit / abort"]
+        WAL["wal.py\nappend / query"]
     end
 
-    %% CLI
-    subgraph CLI
-        REPL["CLI REPL"]
+    subgraph Adapters["Adaptadores reutilizados por URI"]
+        PG["PostgresAdapter\n(asyncpg)"]
+        MG["MongoAdapter\n(motor)"]
     end
 
-    %% API
-    subgraph API
-        FastAPI["FastAPI Service"]
-        Routes["API Routes"]
-        Schemas["Schemas / Deps"]
-    end
-
-    %% CORE
-    subgraph Core
-        Conn["Connection Manager"]
-        TX["Transaction Manager"]
-        WAL["Write Ahead Log"]
-        Recovery["Recovery Manager"]
-    end
-
-    %% ADAPTERS
-    subgraph Adapters
-        PG["PostgreSQL Adapter"]
-        MG["MongoDB Adapter"]
-    end
-
-    %% DATABASES
-    subgraph Databases
+    subgraph Databases["Motores"]
         Postgres[("PostgreSQL")]
         Mongo[("MongoDB")]
     end
 
-    %% FLOWS
-    Vue --> FastAPI
-    Stores --> FastAPI
-    REPL --> FastAPI
+    REPL --> Conn
+    REPL --> TX
+    REPL --> WAL
 
-    FastAPI --> Conn
+    REPL --> PG
+    REPL --> MG
 
-    Conn --> TX
-    Conn --> WAL
     TX --> WAL
-    Recovery --> WAL
-
-    Conn --> PG
-    Conn --> MG
 
     PG --> Postgres
     MG --> Mongo
+
+    Conn --> REPL
