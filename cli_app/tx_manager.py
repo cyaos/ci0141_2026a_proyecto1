@@ -52,6 +52,7 @@ class TxManager:
                 raise RuntimeError("Unknown TID")
             await append({"tid": tid, "op": "COMMIT"})
             # commit any attached adapter transactions
+            errors = []
             for engine, info in ctx.adapter_txs.items():
                 adapter = info.get("adapter")
                 txobj = info.get("tx")
@@ -63,9 +64,11 @@ class TxManager:
                         # if txobj itself has commit (e.g., asyncpg Transaction), call it
                         if hasattr(txobj, "commit"):
                             await txobj.commit()
-                except Exception:
-                    # best-effort: continue committing others; real implementation should handle failures
-                    pass
+                except Exception as e:
+                    # collect errors to report after attempting others
+                    errors.append(f"{engine}: {e}")
+            if errors:
+                raise RuntimeError("Errors during commit: " + "; ".join(errors))
 
     async def abort(self, tid: str):
         async with self._lock:
@@ -74,6 +77,7 @@ class TxManager:
                 raise RuntimeError("Unknown TID")
             await append({"tid": tid, "op": "ABORT"})
             # rollback any attached adapter transactions
+            errors = []
             for engine, info in ctx.adapter_txs.items():
                 adapter = info.get("adapter")
                 txobj = info.get("tx")
@@ -83,6 +87,8 @@ class TxManager:
                     else:
                         if hasattr(txobj, "rollback"):
                             await txobj.rollback()
-                except Exception:
-                    pass
+                except Exception as e:
+                    errors.append(f"{engine}: {e}")
+            if errors:
+                raise RuntimeError("Errors during abort: " + "; ".join(errors))
 

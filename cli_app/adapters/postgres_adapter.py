@@ -15,12 +15,29 @@ class PostgresAdapter:
             self._conn = await asyncpg.connect(self.uri)
         return self._conn
 
+    async def _reconnect(self):
+        # best-effort cleanup and create a fresh connection
+        try:
+            if self._conn:
+                await self._conn.close()
+        except Exception:
+            pass
+        self._conn = None
+        await self.connect()
+
     async def begin_transaction(self):
         """Start a DB transaction on the underlying connection and return the Transaction object."""
         await self.connect()
-        tx = self._conn.transaction()
-        await tx.start()
-        return tx
+        try:
+            tx = self._conn.transaction()
+            await tx.start()
+            return tx
+        except Exception:
+            # try one reconnect and retry
+            await self._reconnect()
+            tx = self._conn.transaction()
+            await tx.start()
+            return tx
 
     async def commit_transaction(self, tx):
         """Commit a Transaction object returned by begin_transaction."""
@@ -38,12 +55,21 @@ class PostgresAdapter:
     async def execute(self, query: str, *args) -> Any:
         await self.connect()
         async with self._lock:
-            return await self._conn.fetch(query, *args)
+            try:
+                return await self._conn.fetch(query, *args)
+            except Exception:
+                # try one reconnect and retry the query
+                await self._reconnect()
+                return await self._conn.fetch(query, *args)
 
     async def execute_non_query(self, query: str, *args) -> str:
         await self.connect()
         async with self._lock:
-            return await self._conn.execute(query, *args)
+            try:
+                return await self._conn.execute(query, *args)
+            except Exception:
+                await self._reconnect()
+                return await self._conn.execute(query, *args)
 
     async def begin(self):
         await self.connect()
