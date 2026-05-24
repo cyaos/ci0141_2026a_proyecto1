@@ -327,31 +327,43 @@ async def repl_loop():
                     if mg is None:
                         mg = MongoAdapter(uri)
                         adapter_cache[("mongo", uri)] = mg
-                    client = await mg.connect()
+                    # Use adapter helpers that capture before/after images for WAL
                     if op == "find":
-                        rows = await client[db][coll].find(payload).to_list(length=100)
+                        rows = await mg.execute_find(db, coll, payload)
                         for r in rows:
                             print(r)
                     elif op == "insert":
                         docs = payload if isinstance(payload, list) else [payload]
-                        res = await client[db][coll].insert_many(docs)
-                        print("inserted_ids:", res.inserted_ids)
-                        if current_tid:
-                            await tx_mgr.log_op(current_tid, "WRITE", engine, None, None, f"insert {db}.{coll}")
+                        try:
+                            inserted_ids, after = await mg.insert_with_images(db, coll, docs)
+                            print("inserted_ids:", inserted_ids)
+                            if current_tid:
+                                await tx_mgr.log_op(current_tid, "WRITE", engine, [], after, f"insert {db}.{coll}")
+                        except Exception as e:
+                            print("execution error:", e)
                     elif op == "update":
-                        # payload should be {"filter":..., "update":...}
                         flt = payload.get("filter", {})
                         upd = payload.get("update", {})
-                        res = await client[db][coll].update_many(flt, upd)
-                        print("matched:", res.matched_count, "modified:", res.modified_count)
-                        if current_tid:
-                            await tx_mgr.log_op(current_tid, "WRITE", engine, None, None, f"update {db}.{coll}")
+                        try:
+                            before, after, res = await mg.update_with_images(db, coll, flt, upd)
+                            # motor UpdateResult has matched_count/modified_count
+                            matched = getattr(res, "matched_count", None)
+                            modified = getattr(res, "modified_count", None)
+                            print("matched:", matched, "modified:", modified)
+                            if current_tid:
+                                await tx_mgr.log_op(current_tid, "WRITE", engine, before, after, f"update {db}.{coll}")
+                        except Exception as e:
+                            print("execution error:", e)
                     elif op == "delete":
                         flt = payload
-                        res = await client[db][coll].delete_many(flt)
-                        print("deleted:", res.deleted_count)
-                        if current_tid:
-                            await tx_mgr.log_op(current_tid, "WRITE", engine, None, None, f"delete {db}.{coll}")
+                        try:
+                            before, after, res = await mg.delete_with_images(db, coll, flt)
+                            deleted = getattr(res, "deleted_count", None)
+                            print("deleted:", deleted)
+                            if current_tid:
+                                await tx_mgr.log_op(current_tid, "WRITE", engine, before, after, f"delete {db}.{coll}")
+                        except Exception as e:
+                            print("execution error:", e)
                     else:
                         print("unsupported mongo op:", op)
                 else:
