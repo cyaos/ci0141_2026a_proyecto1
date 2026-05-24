@@ -12,6 +12,19 @@ from sqlparse.sql import Where, Identifier, IdentifierList
 from sqlparse.tokens import Keyword, DML, Name
 
 
+def _parse_wal_filters(args):
+    filters = {"tid": None, "since": None, "until": None}
+    for arg in args:
+        if "=" not in arg:
+            continue
+        key, value = arg.split("=", 1)
+        key = key.lower().strip()
+        value = value.strip()
+        if key in filters and value:
+            filters[key] = value
+    return filters
+
+
 async def repl_loop():
     print("DBClient REPL. Type 'help' for commands.")
     tx_mgr = tx_manager.TxManager()
@@ -32,6 +45,7 @@ async def repl_loop():
             return
         if cmd == "help":
             print("Commands: connections, addconn, rmconn, use, active, begin, commit, abort, sql, wal, quit")
+            print("WAL filters: wal tid=<TID> since=<ISO> until=<ISO>")
             continue
         if cmd == "connections":
             for c in connections.list_connections():
@@ -360,7 +374,12 @@ async def repl_loop():
                 print("No active connection")
             continue
         if cmd == "wal":
-            rows = wal.query()
+            filters = _parse_wal_filters(args)
+            rows = wal.query(
+                tid=filters["tid"],
+                since=filters["since"],
+                until=filters["until"],
+            )
             for r in rows[-20:]:
                 print(r)
             continue
