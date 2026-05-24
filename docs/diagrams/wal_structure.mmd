@@ -1,22 +1,27 @@
-classDiagram
-    class WAL_Entry {
-        +string timestamp
-        +string tid
-        +string op
-        +string engine
-        +string query
-        +string table
-        +Array~Object~ before
-        +Array~Object~ after
-        +Object metadata
-    }
+flowchart TB
 
-    class Metadata {
-        +string user
-        +string host
-        +string extra
-    }
+    WALFile[".dbclient/wal.jsonl\n(JSON Lines, append-only)"]
 
-    WAL_Entry --> Metadata : contains
-    WAL_Entry : "op in {BEGIN, COMMIT, ABORT, INSERT, UPDATE, DELETE, FAILURE_SIMULATED}"
-    WAL_Entry : "before/after = [] para ops no DML"
+    subgraph Entry["Entrada WAL"]
+        TID["tid"]
+        TS["timestamp"]
+        OP["op\nBEGIN / WRITE / COMMIT / ABORT"]
+        ENG["engine\n(postgres | mongo)"]
+        Q["query"]
+        BEFORE["before"]
+        AFTER["after"]
+    end
+
+    Append["wal.append(entry)"] --> WALFile
+    WALFile --> Query["wal.query(tid, since, until)"]
+
+    Append --> Entry
+    Entry --> WALFile
+
+    TID --> WALFile
+    TS --> WALFile
+    OP --> WALFile
+    ENG --> WALFile
+    Q --> WALFile
+    BEFORE --> WALFile
+    AFTER --> WALFile
