@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip show sqlparse)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(find \"/c/Users/Elitebook\" -name \"sqlparse\" -type d 2>/dev/null | head -10)",
+      "Read(//c/Users/Elitebook/**)"
+    ]
+  }
+}
