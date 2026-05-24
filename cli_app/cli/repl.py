@@ -380,7 +380,7 @@ async def repl_loop():
                 since=filters["since"],
                 until=filters["until"],
             )
-            for r in rows[-20:]:
+            for r in rows:
                 print(r)
             continue
         print("unknown command")
