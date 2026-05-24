@@ -1,0 +1,22 @@
+classDiagram
+    class WAL_Entry {
+        +string timestamp
+        +string tid
+        +string op
+        +string engine
+        +string query
+        +string table
+        +Array~Object~ before
+        +Array~Object~ after
+        +Object metadata
+    }
+
+    class Metadata {
+        +string user
+        +string host
+        +string extra
+    }
+
+    WAL_Entry --> Metadata : contains
+    WAL_Entry : "op in {BEGIN, COMMIT, ABORT, INSERT, UPDATE, DELETE, FAILURE_SIMULATED}"
+    WAL_Entry : "before/after = [] para ops no DML"
