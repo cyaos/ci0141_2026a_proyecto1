@@ -25,6 +25,8 @@ informe.log
 
 # Runtime / local tooling
 .dbclient/
+.claude/settings.local.json
+src/package-lock.json
 
 # Misc
 overleaf/

@@ -56,3 +56,25 @@ export interface RankingUpdate {
 }
 
 export type EntityName = "jugadores" | "rankings";
+
+export type ProtocolName =
+  | "no_undo_no_redo"
+  | "no_undo_redo"
+  | "undo_no_redo"
+  | "undo_redo";
+
+export interface RecoveryStatus {
+  protocol: ProtocolName | string;
+  current_tid: string | null;
+  wal_count: number;
+  protocolos_disponibles: string[];
+}
+
+export interface FailureReport {
+  protocolo: string;
+  estado: string;
+  tids_undo: string[];
+  tids_redo: string[];
+  ops_undo: any[];
+  ops_redo: any[];
+}
