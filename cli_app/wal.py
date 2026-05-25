@@ -5,8 +5,8 @@ from datetime import datetime
 import asyncio
 from typing import Optional, List, Dict, Any
 
-# Store runtime files in the current working directory (project-local) instead of the user's home.
-CONFIG_DIR = Path.cwd() / ".dbclient"
+# Anchor to repo root so the API (cwd=repo root) and the REPL (cwd=cli_app/) share one WAL.
+CONFIG_DIR = Path(__file__).parent.parent / ".dbclient"
 WAL_FILE = CONFIG_DIR / "wal.jsonl"
 _wal_lock = asyncio.Lock()
 
