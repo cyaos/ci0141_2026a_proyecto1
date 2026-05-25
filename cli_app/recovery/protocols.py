@@ -148,6 +148,28 @@ async def _ejecutar_dml_pg(adapter, sql: str, verbo: str, tabla: Optional[str],
     return before, after
 
 
+async def _log_then_execute_pg(adapter, tid: str, op: str, engine: str,
+                               sql: str, tabla, where) -> tuple:
+    """RF-04: escribe el WAL ANTES de aplicar la mutación a la BD."""
+    verbo = _extraer_verbo(sql)
+    before = (
+        await _capturar_before_pg(adapter, tabla, where)
+        if tabla and where and verbo in ('update', 'delete')
+        else []
+    )
+    await wal_module.append({
+        'tid': tid,
+        'op': op,
+        'engine': engine,
+        'query': sql,
+        'before': before,
+        'after': [],
+        'table': tabla,
+    })
+    _, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
+    return before, after
+
+
 async def _ejecutar_undo_pg(adapter, sqls_undo: list) -> list:
     """Ejecuta sentencias de UNDO contra Postgres. Retorna lista de resultados."""
     resultados = []
@@ -247,19 +269,11 @@ class NoUndoNoRedo(RecoveryProtocol):
             where = _extraer_where(sql) if verbo in ('update', 'delete') else None
             adapter = item['adapter']
             try:
-                before, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
+                before, after = await _log_then_execute_pg(
+                    adapter, tid, item['op'], 'postgres', sql, tabla, where
+                )
             except Exception:
-                before, after = [], []
-            # Registrar en WAL ahora que se aplicó
-            await wal_module.append({
-                'tid': tid,
-                'op': item['op'],
-                'engine': 'postgres',
-                'query': sql,
-                'before': before,
-                'after': after,
-                'table': tabla,
-            })
+                pass
         self._limpiar_tid(tid)
 
     async def on_abort(self, tid: str) -> None:
@@ -303,18 +317,11 @@ class NoUndoRedo(RecoveryProtocol):
             where = _extraer_where(sql) if verbo in ('update', 'delete') else None
             adapter = item['adapter']
             try:
-                before, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
+                await _log_then_execute_pg(
+                    adapter, tid, item['op'], 'postgres', sql, tabla, where
+                )
             except Exception:
-                before, after = [], []
-            await wal_module.append({
-                'tid': tid,
-                'op': item['op'],
-                'engine': 'postgres',
-                'query': sql,
-                'before': before,
-                'after': after,
-                'table': tabla,
-            })
+                pass
         self._limpiar_tid(tid)
 
     async def on_abort(self, tid: str) -> None:
@@ -372,18 +379,7 @@ class UndoNoRedo(RecoveryProtocol):
         verbo = _extraer_verbo(sql)
         tabla = _extraer_tabla(sql, verbo)
         where = _extraer_where(sql) if verbo in ('update', 'delete') else None
-        before, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
-        # Escribir en WAL inmediatamente (escritura anticipada)
-        await wal_module.append({
-            'tid': tid,
-            'op': op,
-            'engine': 'postgres',
-            'query': sql,
-            'before': before,
-            'after': after,
-            'table': tabla,
-        })
-        return before, after
+        return await _log_then_execute_pg(adapter, tid, op, engine, sql, tabla, where)
 
     async def on_commit(self, tid: str) -> None:
         # Las operaciones ya están en la BD y en el WAL; solo se marca el commit
@@ -469,17 +465,7 @@ class UndoRedo(RecoveryProtocol):
         verbo = _extraer_verbo(sql)
         tabla = _extraer_tabla(sql, verbo)
         where = _extraer_where(sql) if verbo in ('update', 'delete') else None
-        before, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
-        await wal_module.append({
-            'tid': tid,
-            'op': op,
-            'engine': 'postgres',
-            'query': sql,
-            'before': before,
-            'after': after,
-            'table': tabla,
-        })
-        return before, after
+        return await _log_then_execute_pg(adapter, tid, op, engine, sql, tabla, where)
 
     async def on_commit(self, tid: str) -> None:
         self._limpiar_tid(tid)
