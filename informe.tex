@@ -492,12 +492,12 @@ del proyecto ---operaciones secuenciales desde un único proceso--- esta estrate
 suficiente.
 
 % ══════════════════════════════════════════════════════════════════════════════
-\subsection{Objetivo específico 2: interfaz de usuario y API REST para operaciones CRUD}
+\subsection{Interfaz de usuario y API REST para operaciones CRUD}
 % ══════════════════════════════════════════════════════════════════════════════
 
 \subsubsection{Descripción general}
 
-El segundo objetivo específico consiste en ofrecer tres superficies de interacción que compartan
+El objetivo consiste en ofrecer tres superficies de interacción que compartan
 la misma capa de acceso a datos:
 
 \begin{enumerate}[leftmargin=2em]
@@ -735,7 +735,7 @@ actualización de jugador desde la interfaz web hasta la base de datos:
 
 
 % ══════════════════════════════════════════════════════════════════════════════
-\subsection{Objetivo específico 3: Bitácora transaccional tipo Write-Ahead Log}
+\subsection{Bitácora transaccional tipo Write-Ahead Log}
 % ══════════════════════════════════════════════════════════════════════════════
 
 \subsubsection{Diseño e implementación de la bitácora WAL}
@@ -829,7 +829,7 @@ El diagrama de la WAL muestra cómo cada operación se registra antes de ejecuta
 \end{figure}
 
 % ─────────────────────────────────────────────────────────────────────────────
-\subsection{Objetivo específico 4: Simulación de fallos en transacciones y aplicación de protocolos de recuperación}
+\subsection{Simulación de fallos en transacciones y aplicación de protocolos de recuperación}
 % ─────────────────────────────────────────────────────────────────────────────
 
 El objetivo principal por el cual deben ser implementados los protocolos de recuperación es porque estos son los encargados de materializar los cambios realizados por una transacción en una base de datos y también se encargan de ejecutaras acciones correctas en casos de fallos para devolver la base de datos a un estado consistente. Estos protocolos se diferencian por medio de 2 ejes; escritura (diferida o inmediata) y por las opciones de recuperación necesarias (\textit{UNDO, REDO}, ambas o ninguna).
