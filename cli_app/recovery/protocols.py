@@ -150,21 +150,24 @@ async def _ejecutar_dml_pg(adapter, sql: str, verbo: str, tabla: Optional[str],
 
 async def _log_then_execute_pg(adapter, tid: str, op: str, engine: str,
                                sql: str, tabla, where) -> tuple:
-    """RF-04: escribe el WAL ANTES de aplicar la mutación a la BD."""
+    """
+    RF-04 para UPDATE/DELETE: captura before → escribe WAL → ejecuta.
+    Para INSERT no hay estado previo que proteger; ejecuta primero para
+    obtener el PK generado (necesario para UNDO = DELETE WHERE pk=X).
+    """
     verbo = _extraer_verbo(sql)
-    before = (
-        await _capturar_before_pg(adapter, tabla, where)
-        if tabla and where and verbo in ('update', 'delete')
-        else []
-    )
+    if verbo == 'insert':
+        before, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
+        await wal_module.append({
+            'tid': tid, 'op': op, 'engine': engine,
+            'query': sql, 'before': before, 'after': after, 'table': tabla,
+        })
+        return before, after
+    # UPDATE / DELETE: RF-04 estricto
+    before = await _capturar_before_pg(adapter, tabla, where) if tabla and where else []
     await wal_module.append({
-        'tid': tid,
-        'op': op,
-        'engine': engine,
-        'query': sql,
-        'before': before,
-        'after': [],
-        'table': tabla,
+        'tid': tid, 'op': op, 'engine': engine,
+        'query': sql, 'before': before, 'after': [], 'table': tabla,
     })
     _, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
     return before, after

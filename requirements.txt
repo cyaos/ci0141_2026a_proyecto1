@@ -3,3 +3,6 @@ pymongo
 python-dotenv
 fastapi
 uvicorn[standard]
+sqlparse
+asyncpg
+motor
