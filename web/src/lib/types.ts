@@ -70,6 +70,17 @@ export interface RecoveryStatus {
   protocolos_disponibles: string[];
 }
 
+export interface WalEntry {
+  tid: string;
+  op: string;
+  engine?: string;
+  query?: string;
+  before?: any[];
+  after?: any[];
+  table?: string;
+  timestamp: string;
+}
+
 export interface FailureReport {
   protocolo: string;
   estado: string;

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../lib/api';
-import type { ProtocolName, RecoveryStatus, FailureReport } from '../lib/types';
+import type { ProtocolName, RecoveryStatus, FailureReport, WalEntry } from '../lib/types';
 
 interface State {
   protocol: string;
@@ -11,6 +11,11 @@ interface State {
   lastReport: FailureReport | null;
   lastError: string | null;
   switching: boolean;
+  walEntries: WalEntry[];
+  walFilterTid: string;
+  walFilterSince: string;
+  walFilterUntil: string;
+  walLoading: boolean;
 }
 
 export const useRecoveryStore = defineStore('recovery', {
@@ -23,10 +28,25 @@ export const useRecoveryStore = defineStore('recovery', {
     lastReport: null,
     lastError: null,
     switching: false,
+    walEntries: [],
+    walFilterTid: '',
+    walFilterSince: '',
+    walFilterUntil: '',
+    walLoading: false,
   }),
   getters: {
     isActive: (state) => state.currentTid !== null,
     hasProtocol: (state) => state.protocol !== '',
+    filteredWal: (state): WalEntry[] => {
+      let entries = state.walEntries;
+      const tid = state.walFilterTid.trim();
+      const since = state.walFilterSince;
+      const until = state.walFilterUntil;
+      if (tid) entries = entries.filter(e => e.tid.includes(tid));
+      if (since) entries = entries.filter(e => e.timestamp >= since);
+      if (until) entries = entries.filter(e => e.timestamp <= until + 'Z');
+      return entries;
+    },
   },
   actions: {
     _apply(status: RecoveryStatus) {
@@ -41,6 +61,16 @@ export const useRecoveryStore = defineStore('recovery', {
         this._apply(status);
       } catch (err: any) {
         this.lastError = err.message || 'Error al consultar estado de recuperación';
+      }
+    },
+    async fetchWal() {
+      this.walLoading = true;
+      try {
+        this.walEntries = await api.getWal();
+      } catch (err: any) {
+        this.lastError = err.message || 'Error al cargar WAL';
+      } finally {
+        this.walLoading = false;
       }
     },
     async selectProtocol(name: ProtocolName) {
@@ -60,6 +90,7 @@ export const useRecoveryStore = defineStore('recovery', {
         const report = await api.simulateFailure();
         this.lastReport = report;
         await this.refresh();
+        await this.fetchWal();
         return report;
       } catch (err: any) {
         this.lastError = err.message || 'Error simulando fallo';
@@ -70,6 +101,7 @@ export const useRecoveryStore = defineStore('recovery', {
       try {
         const status = await api.commitTx();
         this._apply(status);
+        await this.fetchWal();
       } catch (err: any) {
         this.lastError = err.message || 'Error en commit';
       }
@@ -77,7 +109,11 @@ export const useRecoveryStore = defineStore('recovery', {
     startPolling() {
       if (this.pollHandle !== null) return;
       this.refresh();
-      this.pollHandle = window.setInterval(() => this.refresh(), 3000);
+      this.fetchWal();
+      this.pollHandle = window.setInterval(() => {
+        this.refresh();
+        this.fetchWal();
+      }, 3000);
     },
     stopPolling() {
       if (this.pollHandle !== null) {
