@@ -1,3 +1,5 @@
 psycopg[binary]
 pymongo
 python-dotenv
+fastapi
+uvicorn[standard]
