@@ -565,6 +565,14 @@ Pydantic. La aplicación se levanta con \texttt{uvicorn} y expone tres grupos de
     POST   & \texttt{/api/\{engine\}/rankings}           & Crea un nuevo registro de ranking. \\
     PATCH  & \texttt{/api/\{engine\}/rankings/\{id\}}   & Actualiza estadísticas de un ranking. \\
     DELETE & \texttt{/api/\{engine\}/rankings/\{id\}}   & Elimina un registro de ranking. \\
+    \midrule
+    GET    & \texttt{/api/recovery/status}              & Protocolo activo, TID actual y conteo WAL. \\
+    POST   & \texttt{/api/recovery/protocol}            & Selecciona el protocolo de recuperación. \\
+    GET    & \texttt{/api/recovery/wal}                 & Retorna todas las entradas del WAL (JSONL). \\
+    POST   & \texttt{/api/recovery/begin}               & Abre una transacción manualmente. \\
+    POST   & \texttt{/api/recovery/commit}              & Confirma la transacción activa. \\
+    POST   & \texttt{/api/recovery/abort}               & Aborta la transacción activa. \\
+    POST   & \texttt{/api/recovery/simulate\_failure}   & Simula un fallo y ejecuta recuperación. \\
     \bottomrule
   \end{tabularx}
   \label{tab:api-endpoints}
@@ -687,14 +695,21 @@ La aplicación se organiza en tres capas:
                 eliminar) para reflejar el estado real de la base de datos.
           \item \texttt{drawer.ts}: controla el panel lateral derecho utilizado para los
                 formularios de creación y edición.
+          \item \texttt{recovery.ts}: gestiona el protocolo de recuperación activo, el TID
+                de la transacción en curso y las entradas de la bitácora WAL. Expone el
+                getter \texttt{filteredWal} que aplica los filtros de TID y rango de
+                tiempo definidos en RF-08. Hace polling cada tres segundos para mantener
+                el conteo WAL actualizado en el pie de página.
         \end{itemize}
   \item \textbf{Componentes de layout}: \texttt{TopToolbar} (barra superior con selector de
-        motor), \texttt{Sidebar} (lista de motores con indicador de estado),
-        \texttt{StatusFooter} (pie de página con información de la conexión activa).
+        protocolo y botón de simulación de fallo), \texttt{Sidebar} (lista de motores con
+        indicador de estado), \texttt{StatusFooter} (pie de página con protocolo activo,
+        conteo WAL y TID de la transacción en curso).
   \item \textbf{Componentes de datos}: \texttt{EntityPanel} coordina la vista de tablas;
         \texttt{JugadoresTable} y \texttt{RankingsTable} renderizan las listas con acciones
         de edición y eliminación; \texttt{JugadorForm} y \texttt{RankingForm} manejan
-        formularios de creación y edición dentro del drawer.
+        formularios de creación y edición dentro del drawer; \texttt{WalPanel} muestra la
+        bitácora WAL completa con filtros por TID y rango de tiempo (RF-08).
 \end{enumerate}
 
 El polling de cinco segundos sobre el estado de los motores permite detectar en tiempo casi
@@ -737,27 +752,46 @@ Las características principales del diseño son estas:
   \item Para futuros crecimientos del archivo, pueden añadirse puntos de control o \textit{checkpoints}, de forma que se recorte la bitácora hasta un estado seguro.
 \end{itemize}
 
-\paragraph{Ejemplo de entrada JSON}\mbox{}\\
+\paragraph{Ruta compartida entre la API y el REPL}\mbox{}\\
 
-\begin{lstlisting}[style=jsoncode, caption={Ejemplo de entrada WRITE en \texttt{.dbclient/wal.jsonl}}]
-{
-  "lsn": 1024,
-  "tid": "T1",
-  "type": "WRITE",
-  "time": "2026-05-24T12:00:00Z",
-  "payload": {
-    "sql": "UPDATE jugadores SET pais = 'Costa Rica' WHERE id_jugador = 3"
-  },
-  "before": {
-    "id_jugador": 3,
-    "pais": "Mexico"
-  },
-  "after": {
-    "id_jugador": 3,
-    "pais": "Costa Rica"
-  }
-}
+Un detalle crítico de implementación es que la ruta del archivo WAL se ancla a la
+raíz del repositorio mediante \texttt{Path(\_\_file\_\_).parent.parent / ".dbclient"},
+en lugar de \texttt{Path.cwd()}. Esto garantiza que la API REST (cuyo directorio de
+trabajo es la raíz del repositorio) y el REPL de \texttt{cli\_app/} (ejecutado desde
+su propio directorio) escriban y lean \textbf{el mismo archivo} \texttt{wal.jsonl},
+haciendo del sistema un producto unificado.
+
+\paragraph{Ejemplo de entrada JSON real}\mbox{}\\
+
+\begin{lstlisting}[style=jsoncode, caption={Entradas reales del WAL — BEGIN e INSERT en \texttt{.dbclient/wal.jsonl}}]
+{"tid":"T246946a6","op":"BEGIN","timestamp":"2026-05-25T05:12:41Z"}
+{"tid":"T246946a6","op":"INSERT","engine":"postgres",
+ "query":"INSERT INTO jugadores (nombre_usuario,pais,fecha_registro)
+  VALUES ('test_undo','CR','2026-01-01')",
+ "before":[],"after":[{"id_jugador":14,"nombre_usuario":"test_undo",
+ "pais":"CR","fecha_registro":"2026-01-01"}],
+ "table":"jugadores","timestamp":"2026-05-25T05:12:41Z"}
+{"tid":"T246946a6","op":"FAILURE_SIMULATED",
+ "timestamp":"2026-05-25T05:12:41Z"}
 \end{lstlisting}
+
+Cada línea es un objeto JSON independiente (formato JSONL). Los campos
+\texttt{before} y \texttt{after} almacenan las imágenes de la fila antes y después
+de la operación respectivamente; \texttt{before} se escribe \emph{antes} de ejecutar
+la mutación (RF-04), mientras que para \texttt{INSERT} el campo \texttt{after} se
+completa una vez ejecutado (para contar con el PK generado, indispensable en el
+\textit{UNDO} de la inserción).
+
+\paragraph{Filtros de consulta (RF-08)}\mbox{}\\
+
+La función \texttt{query(tid, since, until)} en \texttt{cli\_app/wal.py} implementa
+el filtrado con al menos dos criterios: identificador de transacción (\texttt{tid}) y
+rango temporal (\texttt{since}/\texttt{until}). En la interfaz web, el componente
+\texttt{WalPanel.vue} expone controles visuales para ambos filtros: un campo de texto
+para el TID parcial y dos selectores \textit{datetime} para el rango. El getter
+\texttt{filteredWal} del store aplica los filtros en el cliente sobre los datos ya
+descargados desde \texttt{GET /api/recovery/wal}, actualizando la tabla de la
+bitácora en tiempo real sin consultas adicionales al servidor.
 
 \subsubsection{Diagramas}
 
@@ -802,15 +836,137 @@ El objetivo principal por el cual deben ser implementados los protocolos de recu
 Estos protocolos de recuperación se apoyan sobre la bitácora de escritura anticipada que se definió en la arquitectura del proyecto, esta funciona mediante un \textit{ Write-Ahead Log, WAL}. Con esto definido podemos entonces definir el funcionamiento e implementación de cada protocolo.
 
 \subsubsection{P1: \textbf{No-Undo / No-Redo}}
-Este protocolo utiliza un buffer de memoria sobre el cual se acumulan las opera
 
+Este protocolo utiliza un buffer de memoria sobre el cual se acumulan las operaciones
+de escritura durante la transacción. Al recibir el \texttt{COMMIT}, el sistema
+aplica todos los cambios de golpe a la base de datos y registra las entradas correspondientes
+en la bitácora. Si ocurre un fallo antes del \texttt{COMMIT}, el buffer se descarta y la
+base de datos nunca fue modificada, por lo que no se requiere deshacer nada.
+Una vez que el \texttt{COMMIT} se registró en el WAL y los cambios se aplicaron, la
+BD está en estado consistente y tampoco hay que rehacer nada.
 
+\begin{itemize}
+  \item \textbf{Escritura:} diferida (\textit{deferred write}) — los cambios se acumulan en memoria.
+  \item \textbf{En fallo antes de COMMIT:} los cambios no llegaron a la BD; se ignoran.
+  \item \textbf{En fallo después de COMMIT:} la BD ya fue actualizada; no se necesita REDO.
+  \item \textbf{Recuperación:} trivial — ninguna acción necesaria.
+\end{itemize}
+
+\subsubsection{P2: \textbf{No-Undo / Redo}}
+
+Al igual que P1, las escrituras se difieren en un buffer hasta el \texttt{COMMIT}. La
+diferencia es que al hacer commit las entradas WAL se escriben \emph{antes} de aplicar los
+cambios a la BD (sin forzar flush a disco). Si el sistema falla después del COMMIT pero
+antes de que los cambios lleguen a disco, la recuperación debe \textbf{rehacer (REDO)} esas
+operaciones usando la información de la bitácora. Las transacciones que no llegaron a
+\texttt{COMMIT} no dejaron rastro en la BD, por lo que no necesitan UNDO.
+
+\begin{itemize}
+  \item \textbf{Escritura:} diferida — los cambios se aplican al momento del commit.
+  \item \textbf{En fallo sin COMMIT:} la BD no fue modificada; no se necesita UNDO.
+  \item \textbf{En fallo con COMMIT en WAL:} los cambios pueden no estar en disco; se aplica REDO.
+  \item \textbf{Recuperación:} re-ejecutar las sentencias DML de las TXs con COMMIT registrado.
+\end{itemize}
+
+\subsubsection{P3: \textbf{Undo / No-Redo}}
+
+En este protocolo cada escritura se aplica \emph{inmediatamente} a la base de datos
+(\textit{immediate write / steal}), con la condición de que al momento del \texttt{COMMIT}
+los cambios se fuercen a disco (\textit{force on commit}). Por ello, si el sistema falla
+durante una transacción que aún no llegó a COMMIT, es necesario \textbf{deshacer (UNDO)}
+los cambios parciales usando las imágenes previas (\texttt{before}) almacenadas en el WAL.
+Las TXs que ya commitearon no necesitan ser rehéchas porque sus cambios ya están garantizados
+en disco.
+
+\begin{itemize}
+  \item \textbf{Escritura:} inmediata — los cambios se aplican operación por operación.
+  \item \textbf{En fallo sin COMMIT:} los cambios están parcialmente en BD; se aplica UNDO.
+  \item \textbf{En fallo con COMMIT:} los cambios ya fueron forzados a disco; no hay REDO.
+  \item \textbf{Recuperación:} recorrer el WAL en orden inverso y aplicar la imagen \texttt{before}.
+\end{itemize}
+
+\subsubsection{P4: \textbf{Undo / Redo}}
+
+Es el protocolo más general, conocido como \textit{Steal / No-Force} y es la base del
+algoritmo ARIES. Las escrituras se aplican inmediatamente a la BD (steal) sin forzar flush
+al momento del commit (no-force). Esto significa que:
+
+\begin{itemize}
+  \item TXs sin \texttt{COMMIT}: pueden haber modificado la BD; necesitan \textbf{UNDO}.
+  \item TXs con \texttt{COMMIT}: sus cambios pueden no estar en disco; necesitan \textbf{REDO}.
+\end{itemize}
+
+La recuperación combina ambas operaciones: primero se rehacen las TXs confirmadas en orden
+cronológico (\texttt{REDO pass}), luego se deshacen las no confirmadas en orden inverso
+(\texttt{UNDO pass}).
+
+\paragraph{Fragmento de la bitácora (sesión de prueba real)}\mbox{}\\
+
+El siguiente extracto del archivo \texttt{.dbclient/wal.jsonl} muestra el ciclo completo de
+una transacción: \texttt{BEGIN}, una operación \texttt{INSERT} con imagen posterior registrada,
+y un fallo simulado. Al recuperar, el sistema identificó la TX sin \texttt{COMMIT} y aplicó
+UNDO automáticamente (eliminó la fila insertada).
+
+\begin{lstlisting}[style=jsoncode, caption={Extracto real del WAL — ciclo BEGIN/INSERT/FAILURE\_SIMULATED con recuperación UNDO}]
+{"tid":"T246946a6","op":"BEGIN","timestamp":"2026-05-25T05:12:41Z"}
+{"tid":"T246946a6","op":"INSERT","engine":"postgres",
+ "query":"INSERT INTO jugadores (nombre_usuario,pais,fecha_registro)
+          VALUES ('test_undo','CR','2026-01-01')",
+ "before":[],"after":[{"id_jugador":14,"nombre_usuario":"test_undo",
+ "pais":"CR","fecha_registro":"2026-01-01"}],
+ "table":"jugadores","timestamp":"2026-05-25T05:12:41Z"}
+{"tid":"T246946a6","op":"FAILURE_SIMULATED","timestamp":"2026-05-25T05:12:41Z"}
+\end{lstlisting}
+
+Tras simular el fallo, la recuperación Undo/Redo generó y ejecutó:
+\begin{lstlisting}[language=SQL, caption={SQL de UNDO generado automáticamente por el protocolo P4}]
+DELETE FROM jugadores
+WHERE id_jugador = 14 AND nombre_usuario = 'test_undo'
+  AND pais = 'CR' AND fecha_registro = '2026-01-01';
+\end{lstlisting}
+
+La verificación posterior confirmó que la fila ya no existía en la base de datos, lo que
+demuestra la correcta implementación del protocolo.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusiones}
 % ─────────────────────────────────────────────────────────────────────────────
 
-% (Esta sección será completada al finalizar los objetivos 3 y 4.)
+El desarrollo de este proyecto permitió implementar un cliente de bases de datos distribuidas
+con soporte para múltiples motores, operaciones CRUD completas, una bitácora transaccional
+tipo Write-Ahead Log y cuatro protocolos de recuperación ante fallos. Las conclusiones
+más relevantes son las siguientes:
+
+\begin{enumerate}
+  \item \textbf{El patrón de estrategia resulta fundamental para la extensibilidad.}
+        Al abstraer el acceso a cada motor detrás de una interfaz común (\texttt{PostgresConnection},
+        \texttt{MongoConnection}), el código de la aplicación es independiente del motor activo.
+        Agregar un nuevo motor se reduce a implementar la interfaz sin modificar la lógica de negocio.
+
+  \item \textbf{La bitácora WAL es el eje central de cualquier sistema transaccional.}
+        La implementación en formato JSON Lines demostró que es posible construir un WAL
+        funcional con herramientas mínimas. La clave es la escritura anticipada: el registro
+        debe preceder a la mutación para que la recuperación sea posible. El uso de
+        \texttt{asyncio.Lock} garantizó la atomicidad de las escrituras en entornos concurrentes.
+
+  \item \textbf{Los protocolos difieren en su costo de recuperación, no solo de escritura.}
+        No-Undo/No-Redo minimiza el costo de recuperación pero exige retener escrituras en
+        memoria; Undo/Redo ofrece la mayor flexibilidad al costo de implementar ambas
+        operaciones de recuperación. La elección del protocolo depende de los requisitos de
+        durabilidad, rendimiento y complejidad del sistema.
+
+  \item \textbf{La integración de motores síncronos y asíncronos presenta desafíos reales.}
+        La API REST (FastAPI, asíncrona) interactúa con los adaptadores de Stage 2
+        (\texttt{asyncpg}, \texttt{motor}) mediante \texttt{sys.path} compartido.
+        Anclar las rutas de archivos de runtime (\texttt{.dbclient/}) a la raíz del repositorio,
+        en lugar de al directorio de trabajo, fue necesario para que la API y el REPL
+        compartan el mismo WAL.
+
+  \item \textbf{La resiliencia ante fallos de nodo es requisito mínimo de producción.}
+        La verificación de RNF-01 demostró que detener un contenedor de base de datos mientras
+        el cliente está activo produce mensajes de error controlados en la API sin interrumpir
+        el proceso servidor, lo que es el comportamiento esperado en un sistema distribuido real.
+\end{enumerate}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section*{Referencias}
