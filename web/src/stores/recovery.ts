@@ -45,7 +45,7 @@ export const useRecoveryStore = defineStore('recovery', {
       if (tid) entries = entries.filter(e => e.tid.includes(tid));
       if (since) entries = entries.filter(e => e.timestamp >= since);
       if (until) entries = entries.filter(e => e.timestamp <= until + 'Z');
-      return entries;
+      return [...entries].reverse();
     },
   },
   actions: {
@@ -104,6 +104,15 @@ export const useRecoveryStore = defineStore('recovery', {
         await this.fetchWal();
       } catch (err: any) {
         this.lastError = err.message || 'Error en commit';
+      }
+    },
+    async abort() {
+      try {
+        const status = await api.abortTx();
+        this._apply(status);
+        await this.fetchWal();
+      } catch (err: any) {
+        this.lastError = err.message || 'Error en abort';
       }
     },
     startPolling() {

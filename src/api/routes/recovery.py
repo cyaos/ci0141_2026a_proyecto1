@@ -43,15 +43,15 @@ async def get_status():
 @router.post("/protocol", response_model=StatusResponse)
 async def set_protocol(body: ProtocolBody):
     state = recovery_state.get_state()
-    # Si hay una TX abierta, la cerramos (commit) antes de cambiar de protocolo.
+    # Si hay una TX abierta, la cerramos (commit) y limpiamos WAL antes de cambiar.
     await state.cerrar_tx_actual(commit=True)
+    await recovery_state.wal_module.clear()
     ok = state.recovery_mgr.seleccionar(body.name)
     if not ok:
         raise HTTPException(
             status_code=400,
             detail=f"Protocolo desconocido. Disponibles: {list(recovery_state.NOMBRES_VALIDOS)}",
         )
-    # Abrir TX fresca con el nuevo protocolo activo
     await state.ensure_tx()
     return await get_status()
 
@@ -72,6 +72,7 @@ async def simulate_failure():
     entries = recovery_state.wal_module.query()
     reporte = await state.recovery_mgr.activo.recover(entries, {"postgres": pg})
 
+    await state.ensure_tx()  # auto-abrir nueva TX
     return FailureReport(
         protocolo=reporte.protocolo,
         estado=reporte.estado_final,
@@ -87,6 +88,7 @@ async def commit_current():
     """Confirma la TX activa (flush del buffer en protocolos No-Undo)."""
     state = recovery_state.get_state()
     await state.cerrar_tx_actual(commit=True)
+    await state.ensure_tx()  # auto-abrir nueva TX
     return await get_status()
 
 
@@ -95,6 +97,7 @@ async def abort_current():
     """Aborta la TX activa (UNDO en protocolos Undo)."""
     state = recovery_state.get_state()
     await state.cerrar_tx_actual(commit=False)
+    await state.ensure_tx()  # auto-abrir nueva TX
     return await get_status()
 
 

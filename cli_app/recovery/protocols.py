@@ -163,13 +163,13 @@ async def _log_then_execute_pg(adapter, tid: str, op: str, engine: str,
             'query': sql, 'before': before, 'after': after, 'table': tabla,
         })
         return before, after
-    # UPDATE / DELETE: RF-04 estricto
+    # UPDATE / DELETE: capturar before → ejecutar DML → log WAL con before+after
     before = await _capturar_before_pg(adapter, tabla, where) if tabla and where else []
+    _, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
     await wal_module.append({
         'tid': tid, 'op': op, 'engine': engine,
-        'query': sql, 'before': before, 'after': [], 'table': tabla,
+        'query': sql, 'before': before, 'after': after, 'table': tabla,
     })
-    _, after = await _ejecutar_dml_pg(adapter, sql, verbo, tabla, where)
     return before, after
 
 

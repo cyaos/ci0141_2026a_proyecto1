@@ -38,13 +38,30 @@
       </div>
     </div>
 
-    <div>
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-accent font-mono">{{ recovery.currentTid || '—' }}</span>
+
+      <button
+        class="btn"
+        :class="recovery.isActive ? 'btn-primary' : 'stage-2'"
+        :disabled="!recovery.isActive"
+        @click="commit"
+      >✓ Commit</button>
+
+      <button
+        class="btn"
+        :class="recovery.isActive ? 'btn-danger' : 'stage-2'"
+        :disabled="!recovery.isActive"
+        @click="abort"
+      >✗ Abort</button>
+
       <button
         class="btn"
         :class="recovery.isActive ? 'btn-primary' : 'stage-2'"
         :disabled="!recovery.isActive"
         @click="simular"
       >Simular fallo</button>
+
     </div>
   </header>
 </template>
@@ -62,7 +79,17 @@ const engines = useEnginesStore();
 
 async function select(name: ProtocolName) {
   await recovery.selectProtocol(name);
-  // Refrescar tablas tras commit del protocolo anterior
+  recovery.fetchWal();
+  entities.refresh(engines.activeEngine);
+}
+
+async function commit() {
+  await recovery.commit();
+  entities.refresh(engines.activeEngine);
+}
+
+async function abort() {
+  await recovery.abort();
   entities.refresh(engines.activeEngine);
 }
 
