@@ -12,3 +12,23 @@ venv/
 
 postgres_data/
 mongo_data/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# LaTeX aux
+*.aux
+*.out
+*.toc
+informe.log
+
+# Runtime / local tooling
+.dbclient/
+.claude/settings.local.json
+src/package-lock.json
+
+# Misc
+overleaf/
+PDF document.pdf
+informe.pdf

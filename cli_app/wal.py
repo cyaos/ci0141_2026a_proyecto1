@@ -5,8 +5,8 @@ from datetime import datetime
 import asyncio
 from typing import Optional, List, Dict, Any
 
-# Store runtime files in the current working directory (project-local) instead of the user's home.
-CONFIG_DIR = Path.cwd() / ".dbclient"
+# Anchor to repo root so the API (cwd=repo root) and the REPL (cwd=cli_app/) share one WAL.
+CONFIG_DIR = Path(__file__).parent.parent / ".dbclient"
 WAL_FILE = CONFIG_DIR / "wal.jsonl"
 _wal_lock = asyncio.Lock()
 
@@ -57,3 +57,18 @@ def query(tid: Optional[str] = None, since: Optional[str] = None, until: Optiona
         return True
 
     return [r for r in rows if _filter(r)]
+
+
+async def clear():
+    """Truncate the WAL file and return the number of entries removed."""
+    ensure_dir()
+    async with _wal_lock:
+        if not WAL_FILE.exists():
+            return 0
+        # Count existing lines before clearing
+        count = 0
+        with WAL_FILE.open("r", encoding="utf-8") as f:
+            for _ in f:
+                count += 1
+        WAL_FILE.write_text("", encoding="utf-8")
+        return count

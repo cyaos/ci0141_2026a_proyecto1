@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import sqlparse
 from sqlparse.sql import Where, Identifier, IdentifierList
 from sqlparse.tokens import Keyword, DML, Name
+from recovery.recovery_manager import RecoveryManager, NOMBRES_VALIDOS
+from recovery.failure_simulator import simular_fallo
 
 
 def _parse_wal_filters(args):
@@ -30,6 +32,8 @@ async def repl_loop():
     tx_mgr = tx_manager.TxManager()
     current_tid = None
     adapter_cache = {}
+    recovery_mgr = RecoveryManager()
+
     while True:
         try:
             line = input("> ").strip()
@@ -45,6 +49,8 @@ async def repl_loop():
             return
         if cmd == "help":
             print("Commands: connections, addconn, rmconn, use, active, begin, commit, abort, sql, wal, quit")
+            print("Recuperación: protocolo [nombre], simular_fallo, recuperar")
+            print("  protocolos: no_undo_no_redo | no_undo_redo | undo_no_redo | undo_redo")
             print("WAL filters: wal tid=<TID> since=<ISO> until=<ISO>")
             continue
         if cmd == "connections":
@@ -75,6 +81,8 @@ async def repl_loop():
             if not current_tid:
                 print("no active transaction")
                 continue
+            # El protocolo aplica operaciones diferidas (No-Undo) antes del COMMIT
+            await recovery_mgr.activo.on_commit(current_tid)
             await tx_mgr.commit(current_tid)
             print("committed", current_tid)
             current_tid = None
@@ -83,13 +91,63 @@ async def repl_loop():
             if not current_tid:
                 print("no active transaction")
                 continue
+            # El protocolo aplica UNDO si corresponde (Undo protocols)
+            await recovery_mgr.activo.on_abort(current_tid)
             await tx_mgr.abort(current_tid)
             print("aborted", current_tid)
             current_tid = None
             continue
+
+        # ── Comandos de recuperación ──────────────────────────────────────────
+        if cmd == "protocolo":
+            if not args:
+                print("Protocolo activo:", recovery_mgr.protocolo_activo())
+                print("Disponibles:", ", ".join(NOMBRES_VALIDOS))
+            else:
+                nombre = args[0].lower()
+                if recovery_mgr.seleccionar(nombre):
+                    print("Protocolo cambiado a:", nombre)
+                else:
+                    print("Protocolo desconocido. Disponibles:", ", ".join(NOMBRES_VALIDOS))
+            continue
+
+        if cmd == "simular_fallo":
+            if not current_tid:
+                print("no hay transacción activa")
+                continue
+            await simular_fallo(current_tid, tx_mgr)
+            print(f"Fallo simulado en transacción {current_tid}")
+            print("La TX quedó interrumpida (sin COMMIT ni ABORT) en el WAL.")
+            current_tid = None
+            continue
+
+        if cmd == "recuperar":
+            entradas_wal = wal.query()
+            active = connections.get_active_connection()
+            adaptadores = {}
+            if active:
+                engine_activo = active.get("engine", "")
+                uri_activo = active.get("uri", "")
+                if engine_activo.startswith("postgres"):
+                    pg = adapter_cache.get(("postgres", uri_activo))
+                    if pg is None:
+                        pg = PostgresAdapter(uri_activo)
+                        adapter_cache[("postgres", uri_activo)] = pg
+                    adaptadores["postgres"] = pg
+                elif engine_activo.startswith("mongo"):
+                    mg = adapter_cache.get(("mongo", uri_activo))
+                    if mg is None:
+                        mg = MongoAdapter(uri_activo)
+                        adapter_cache[("mongo", uri_activo)] = mg
+                    adaptadores["mongo"] = mg
+            reporte = await recovery_mgr.activo.recover(entradas_wal, adaptadores)
+            print(reporte)
+            continue
+
+        # ── Comando sql ───────────────────────────────────────────────────────
         if cmd == "sql":
             # preserve original SQL (may contain spaces)
-            sql = line[len("sql") :].strip()
+            sql = line[len("sql"):].strip()
             if not sql:
                 print("usage: sql <SQL or mongo command>")
                 continue
@@ -111,157 +169,22 @@ async def repl_loop():
                         for r in rows:
                             print(dict(r))
                     elif verb in ("insert", "update", "delete"):
-                        # capture before/after images and write-ahead log
-                        before = None
-                        after = None
-                        # INSERT: no before, use RETURNING * to get after
-                        if verb == "insert":
-                            try:
-                                q = sql
-                                if "returning" not in sql.lower():
-                                    q = sql.rstrip().rstrip(";") + " RETURNING *;"
-                                rows = await pg.execute(q)
-                                after = [dict(r) for r in rows]
-                                before = []
-                            except Exception as e:
-                                print("execution error:", e)
-                                continue
-                        else:
-                            # try to extract table and WHERE clause for before image.
-                            # Use a permissive parsing strategy:
-                            # - strip RETURNING for parsing
-                            # - split on WHERE (case-insensitive) to get table part and predicate
-                            tbl = None
-                            where = None
-                            # remove trailing RETURNING clause if present (case-insensitive)
-                            low_sql = sql.lower()
-                            if "returning" in low_sql:
-                                idx = low_sql.find("returning")
-                                sql_no_return = sql[:idx]
-                            else:
-                                sql_no_return = sql
-                            # Use sqlparse to extract table and WHERE clause robustly
-                            tbl = None
-                            where = None
-                            try:
-                                parsed = sqlparse.parse(sql_no_return)
-                                if parsed:
-                                    stmt = parsed[0]
-                                    # extract WHERE token if present
-                                    where_token = None
-                                    for t in stmt.tokens:
-                                        if isinstance(t, Where):
-                                            where_token = t
-                                            break
-                                    if where_token:
-                                        # where_token.value includes leading 'WHERE'
-                                        where = where_token.value[len("WHERE"):].strip().rstrip(";").strip()
-                                    # extract table for UPDATE and DELETE
-                                    if verb == "update":
-                                        # find Identifier after UPDATE
-                                        seen_update = False
-                                        for t in stmt.tokens:
-                                            if t.ttype is DML and t.value.upper() == "UPDATE":
-                                                seen_update = True
-                                                continue
-                                            if seen_update:
-                                                if isinstance(t, Identifier):
-                                                    tbl = t.get_name()
-                                                    break
-                                                # IdentifierList or plain Name token
-                                                if isinstance(t, IdentifierList):
-                                                    # take first identifier
-                                                    for idn in t.get_identifiers():
-                                                        tbl = idn.get_name()
-                                                        break
-                                                    if tbl:
-                                                        break
-                                                if t.ttype is Name:
-                                                    tbl = t.value
-                                                    break
-                                    elif verb == "delete":
-                                        # find Identifier after FROM
-                                        seen_from = False
-                                        for t in stmt.tokens:
-                                            if t.ttype is Keyword and t.value.upper() == "FROM":
-                                                seen_from = True
-                                                continue
-                                            if seen_from:
-                                                if isinstance(t, Identifier):
-                                                    tbl = t.get_name()
-                                                    break
-                                                if isinstance(t, IdentifierList):
-                                                    for idn in t.get_identifiers():
-                                                        tbl = idn.get_name()
-                                                        break
-                                                    if tbl:
-                                                        break
-                                                if t.ttype is Name:
-                                                    tbl = t.value
-                                                    break
-                            except Exception as e:
-                                print("sqlparse error:", e)
-
-                            # ensure a DB transaction is started for this logical TID so we can safely SELECT ... FOR UPDATE
-                            if current_tid:
-                                existing = tx_mgr.get_adapter_tx(current_tid, "postgres")
-                                if not existing:
-                                    try:
-                                        txobj = await pg.begin_transaction()
-                                        await tx_mgr.attach_adapter_tx(current_tid, "postgres", pg, txobj)
-                                    except Exception:
-                                        pass
-
-                            if tbl and where:
-                                try:
-                                    # use FOR UPDATE when inside a transaction to lock rows
-                                    if current_tid:
-                                        sel = f"SELECT * FROM {tbl} WHERE {where} FOR UPDATE;"
-                                    else:
-                                        sel = f"SELECT * FROM {tbl} WHERE {where};"
-                                    brow = await pg.execute(sel)
-                                    before = [dict(r) for r in brow]
-                                except Exception:
-                                    before = []
-                            else:
-                                # couldn't parse table/where; record empty before image
-                                before = []
-                            # Execute the operation and capture after images via RETURNING *
-                            try:
-                                q = sql
-                                if "returning" not in sql.lower():
-                                    q = sql.rstrip().rstrip(";") + " RETURNING *;"
-                                rows = await pg.execute(q)
-                                after = [dict(r) for r in rows]
-                                # For DELETE, RETURNING returns the deleted rows (i.e. the before image).
-                                # Normalize images: before should contain pre-existing rows, after should be empty.
-                                if verb == "delete":
-                                    if not before:
-                                        # if we didn't capture before via SELECT, use RETURNING rows as before
-                                        before = after
-                                    after = []
-                            except Exception as e:
-                                print("execution error:", e)
-                                continue
-
-                        # write WAL entry
-                        entry = {
-                            "tid": current_tid,
-                            "op": verb.upper(),
-                            "engine": "postgres",
-                            "query": sql,
-                            "before": before,
-                            "after": after,
-                        }
+                        # Delegar al protocolo activo: él decide si ejecuta ahora o bufferiza
                         try:
-                            await wal.append(entry)
-                        except Exception:
-                            # fallback to tx_mgr logging if wal.append fails
-                            await tx_mgr.log_op(current_tid or "NO_TID", verb.upper(), engine, before, after, sql)
-                        # print a concise result
-                        print(f"{verb.upper()} affected, before_count={len(before) if before is not None else 'unknown'}, after_count={len(after) if after is not None else 'unknown'}")
+                            before, after = await recovery_mgr.activo.on_write(
+                                current_tid or "NO_TID", verb.upper(), "postgres", sql, pg
+                            )
+                        except Exception as e:
+                            print("execution error:", e)
+                            continue
+                        if after is None:
+                            print(f"{verb.upper()} bufferizado (protocolo: {recovery_mgr.protocolo_activo()}; se aplicará en COMMIT)")
+                        else:
+                            bc = len(before) if before is not None else "desconocido"
+                            ac = len(after) if after is not None else "desconocido"
+                            print(f"{verb.upper()} ejecutado, before_count={bc}, after_count={ac}")
                     else:
-                        # other statements
+                        # other statements (CREATE, DROP, etc.)
                         try:
                             res = await pg.execute_non_query(sql)
                             print(res)

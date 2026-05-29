@@ -39,6 +39,11 @@
            tracking-wider border border-border;
   }
   .stage-2 {
-    @apply text-text-dim border-text-dim/30 cursor-not-allowed;
+    @apply text-text-dim border-text-dim/30 hover:border-text-primary
+           hover:text-text-primary cursor-pointer transition-colors;
+  }
+  .stage-2-active {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 text-xs uppercase
+           tracking-wider border border-accent text-accent bg-accent/10;
   }
 }

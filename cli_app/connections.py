@@ -4,8 +4,8 @@ import json
 from typing import Dict, Any, List, Optional
 
 
-# Store runtime files in the current working directory (project-local) instead of the user's home.
-CONFIG_DIR = Path.cwd() / ".dbclient"
+# Anchor to repo root so the API and REPL share one connection state.
+CONFIG_DIR = Path(__file__).parent.parent / ".dbclient"
 CONN_FILE = CONFIG_DIR / "connections.json"
 # file to store metadata like currently active connection name
 _META_FILE = CONFIG_DIR / "meta.json"

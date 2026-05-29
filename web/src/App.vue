@@ -1,9 +1,12 @@
 <template>
   <div class="h-full flex flex-col">
     <TopToolbar />
-    <div class="flex-1 flex overflow-hidden">
-      <Sidebar />
-      <EntityPanel />
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-1 flex overflow-hidden">
+        <Sidebar />
+        <EntityPanel />
+      </div>
+      <WalPanel />
     </div>
     <StatusFooter />
     <Drawer />
@@ -33,6 +36,7 @@ import TopToolbar from "./components/layout/TopToolbar.vue";
 import Sidebar from "./components/layout/Sidebar.vue";
 import StatusFooter from "./components/layout/StatusFooter.vue";
 import EntityPanel from "./components/tables/EntityPanel.vue";
+import WalPanel from "./components/tables/WalPanel.vue";
 import Drawer from "./components/drawer/Drawer.vue";
 
 const engines = useEnginesStore();

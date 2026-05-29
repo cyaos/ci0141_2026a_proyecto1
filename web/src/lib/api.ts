@@ -6,7 +6,10 @@ import type {
   JugadorUpdate,
   Ranking,
   RankingCreate,
-  RankingUpdate
+  RankingUpdate,
+  RecoveryStatus,
+  FailureReport,
+  ProtocolName
 } from './types';
 
 export class ApiError extends Error {
@@ -64,5 +67,20 @@ export const api = {
   deleteRanking: (engine: EngineKey, id: number) =>
     request<Ranking>(`/${engine}/rankings/${id}`, {
       method: 'DELETE'
-    })
+    }),
+
+  // ── Recovery / protocolos de recuperación ────────────────────────────────
+  recoveryStatus: () => request<RecoveryStatus>('/recovery/status'),
+  setProtocol: (name: ProtocolName) => request<RecoveryStatus>('/recovery/protocol', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  }),
+  simulateFailure: () => request<FailureReport>('/recovery/simulate_failure', {
+    method: 'POST'
+  }),
+  commitTx: () => request<RecoveryStatus>('/recovery/commit', { method: 'POST' }),
+  abortTx: () => request<RecoveryStatus>('/recovery/abort', { method: 'POST' }),
+  beginTx: () => request<RecoveryStatus>('/recovery/begin', { method: 'POST' }),
+  getWal: () => request<any[]>('/recovery/wal'),
 };
